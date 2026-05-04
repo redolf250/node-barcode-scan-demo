@@ -1,0 +1,466 @@
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>POS Scanner - Continuous Mode</title>
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- QuaggaJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+
+  <style>
+    body {
+      background: #f4f6f9;
+    }
+
+    #scanner {
+      width: 100%;
+      height: 380px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+
+    .idle { background: gray; }
+    .running { background: #28a745; }
+    .scanned { background: #007bff; }
+
+    #scanner-wrapper {
+  position: relative;
+}
+
+#scanBox {
+  position: absolute;
+  top: 20%;
+  left: 10%;
+  width: 80%;
+  height: 60%;
+  border: 2px dashed #00ffcc;
+  border-radius: 8px;
+  pointer-events: none;
+}
+  </style>
+</head>
+
+<body>
+
+<div class="container py-4">
+
+  <h3 class="fw-bold mb-1">🛒 POS Barcode Scanner</h3>
+  <p class="text-muted">Continuous scanning with cooldown (no restart needed)</p>
+
+  <!-- Scanner Card -->
+  <div class="card shadow-sm border-0 mb-3">
+    <div class="card-body">
+
+      <!-- Status -->
+      <div class="mb-2">
+        <span id="statusDot" class="status-dot idle"></span>
+        <span id="statusText">Idle</span>
+      </div>
+
+      <!-- Scanner -->
+      <div id="scanner-wrapper" style="position: relative;">
+        <div id="scanner"></div>
+
+        <!-- Scan box -->
+        <div id="scanBox"></div>
+       </div>
+
+      <!-- Controls -->
+      <div class="d-flex gap-2">
+        <button class="btn btn-success" onclick="startScanner()">▶ Start</button>
+        <button class="btn btn-danger" onclick="stopScanner()">⛔ Stop</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Result -->
+  <div class="card shadow-sm border-0">
+    <div class="card-body">
+      <h6 class="fw-bold">Last Scanned</h6>
+      <div id="result" class="text-muted">No scan yet</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let isRunning = false;
+  let locked = false;
+  let lastCode = null;
+
+  const cooldownTime = 2000; // 2 seconds cooldown
+
+  function setStatus(type, text) {
+    const dot = document.getElementById("statusDot");
+    const label = document.getElementById("statusText");
+    dot.className = "status-dot " + type;
+    label.innerText = text;
+  }
+
+  function startScanner() {
+    if (isRunning) return;
+
+    locked = false;
+    lastCode = null;
+
+    Quagga.init({
+      inputStream: {
+        name: "Live",
+        type: "LiveStream",
+        target: document.querySelector("#scanner"),
+        constraints: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        // area: {
+        //     top: "35%",
+        //     right: "5%",
+        //     left: "5%",
+        //     bottom: "35%"
+        // }
+      },
+
+      decoder: {
+        readers: [
+          "ean_reader",
+          "ean_8_reader",
+          "code_128_reader",
+          "upc_reader"
+        ]
+      },
+
+      locate: true,
+      frequency: 10
+    }, function (err) {
+      if (err) {
+        console.error(err);
+        return;
+      }
+
+      Quagga.start();
+      isRunning = true;
+
+      setStatus("running", "Scanning...");
+      console.log("Scanner started");
+    });
+
+    Quagga.offDetected();
+
+    Quagga.onDetected(function (data) {
+      if (locked) return;
+
+      const code = data.codeResult.code;
+
+      // 🔥 prevent same barcode spam
+      if (code === lastCode) return;
+      lastCode = code;
+
+      locked = true;
+
+      console.log("📦 Barcode detected:", code);
+
+      document.getElementById("result").innerHTML =
+        `<span class="fw-bold text-success">${code}</span>`;
+
+        setStatus("scanned", "Scanned");
+     
+      fetchProduct(code);
+      
+
+      // 🔥 cooldown instead of stopping camera
+      setTimeout(() => {
+        locked = false;
+         document.getElementById("result").innerHTML = '';
+        setStatus("running", "Scanning...");
+      }, cooldownTime);
+    });
+  }
+
+  function stopScanner() {
+    if (!isRunning) return;
+
+    Quagga.stop();
+    isRunning = false;
+    locked = false;
+
+    setStatus("idle", "Idle");
+
+    console.log("Scanner stopped");
+  }
+
+  async function fetchProduct(barcode) {
+
+        try {
+            const res = await fetch(`/api/product/${barcode}`);
+            if (!res.ok) throw new Error("Not Found");
+
+            const data = await res.json();
+            if (data.name || data.price || data.barcode) {
+                playBeep();  
+            }
+
+            console.log("Product data:", data);
+
+        } catch (err) {
+            console.log("Product fetch failed:", err);
+    
+        }
+    }
+      // 3. Audio Feedback
+    function playBeep() {
+        const audioCtx = new (globalThis.AudioContext || globalThis.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = 600;
+        osc.start();
+        setTimeout(() => osc.stop(), 150);
+    }
+</script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Enterprise Barcode Scanner</title>
+    <script src="https://unpkg.com/@zxing/library@latest"></script>
+    <style>
+        body {
+            font-family: Arial;
+            text-align: center;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 10px;
+            border: 2px solid #333;
+        }
+
+        .card {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+            display: inline-block;
+            min-width: 250px;
+        }
+
+        .status {
+            margin-top: 10px;
+            color: #555;
+        }
+        .controls { margin: 15px 0; display: flex; gap: 10px; }
+        button { padding: 12px; flex: 1; border-radius: 8px; border: none; font-weight: bold; }
+        #startBtn { background: #28a745; color: white; }
+        #stopBtn { background: #dc3545; color: white; }
+
+        #resultEl { background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .cart { background: #fff; padding: 15px; border-radius: 8px; }
+        .cart-item { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 8px 0; }
+    </style>
+</head>
+<body>
+
+<video id="video"></video>
+
+<div class="controls">
+    <button id="startBtn">Start Scanning</button>
+    <button id="stopBtn">Stop</button>
+</div>
+
+<div id="resultEl">
+    <p style="color: #666;">Ready to scan...</p>
+</div>
+
+<div class="cart">
+    <strong>Shopping Cart</strong>
+    <div id="cartList"></div>
+</div>
+
+</body>
+</html>
+
+<script>
+    // 1. Initialize with specific Barcode Hints
+    const hints = new Map();
+    const formats = [
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.QR_CODE
+    ];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true); // Spend more CPU to find barcodes
+
+    const codeReader = new ZXing.BrowserMultiFormatReader(hints);
+    const scanCooldowns = new Map();
+    const cart = {};
+    const COOLDOWN_MS = 2500;
+    let selectedDeviceId;
+
+    // 2. Setup Camera with specific Mobile Constraints
+    async function init() {
+        try {
+            const devices = await codeReader.listVideoInputDevices();
+            const backCam = devices.find(d => /back|rear|environment/i.test(d.label));
+            selectedDeviceId = backCam ? backCam.deviceId : devices[0].deviceId;
+            console.log("Camera initialized:", selectedDeviceId);
+        } catch (err) {
+            console.error("Camera init failed:", err);
+        }
+    }
+
+    // 3. Audio Feedback
+    function playBeep() {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = 600;
+        osc.start();
+        setTimeout(() => osc.stop(), 150);
+    }
+
+    // 4. API Fetching Logic
+    async function fetchProduct(barcode) {
+        const resultEl = document.getElementById('resultEl');
+        resultEl.innerHTML = `<strong>Processing: ${barcode}...</strong>`;
+
+        try {
+            const res = await fetch(`/api/product/${barcode}`);
+            if (!res.ok) throw new Error("Not Found");
+
+            const data = await res.json();
+
+            resultEl.innerHTML = `
+            <div style="color: #28a745; background: #f0fff0; padding: 10px; border-radius: 8px;">
+                <h3>${data.name}</h3>
+                <p>Price: GHS ${data.price}</p>
+                <small>Format Detected: ${barcode}</small>
+            </div>
+            `;
+
+            cart[barcode] = (cart[barcode] || 0) + 1;
+            updateCartUI();
+            playBeep();
+
+        } catch (err) {
+            resultEl.innerHTML = `<b style="color:red">Unknown Item:</b> ${barcode} is not in the system.`;
+        }
+    }
+
+    // 5. Optimized Scanning Loop
+    function startScanning() {
+        // High-resolution constraints are CRITICAL for 1D barcodes
+        const constraints = {
+            video: {
+                deviceId: selectedDeviceId,
+                width: { min: 640, ideal: 1280 },
+                height: { min: 480, ideal: 720 },
+                facingMode: "environment",
+                // Attempt to force focus if supported
+                advanced: [{ focusMode: "continuous" }]
+            }
+        };
+
+        codeReader.decodeFromConstraints(constraints, 'video', (result, err) => {
+            if (result) {
+                const barcode = result.text;
+                const now = Date.now();
+
+                if (!scanCooldowns.has(barcode) || (now - scanCooldowns.get(barcode) > COOLDOWN_MS)) {
+                    scanCooldowns.set(barcode, now);
+                    fetchProduct(barcode);
+                }
+            }
+            // Ignore common 'err' logs to keep console clean
+        });
+    }
+
+    function updateCartUI() {
+        const list = document.getElementById('cartList');
+        list.innerHTML = Object.entries(cart)
+            .map(([code, qty]) => `
+                <div class="cart-item" style="border-bottom: 1px solid #eee; padding: 5px 0;">
+                    <span>Code: <b>${code}</b></span>
+                    <span style="float:right">x${qty}</span>
+                </div>`)
+            .join('');
+    }
+
+    // Event Listeners
+    document.getElementById('startBtn').onclick = () => startScanning();
+    document.getElementById('stopBtn').onclick = () => {
+        codeReader.reset();
+        document.getElementById('resultEl').innerHTML = "Scanner Standby.";
+    };
+
+    init();
+</script> -->
