@@ -183,6 +183,7 @@
         setStatus("scanned", "Scanned");
      
       fetchProduct(code);
+      //onBarcodeScan(code);
       
 
       // 🔥 cooldown instead of stopping camera
@@ -206,10 +207,40 @@
     console.log("Scanner stopped");
   }
 
+  async function onBarcodeScan(barcodeValue) {
+  // Get location first
+  const position = await new Promise((resolve, reject) =>
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,  // Use GPS, not WiFi
+      timeout: 5000
+    })
+  );
+  // Send to backend
+  const response = await fetch('/api/scan', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      barcode: barcodeValue,
+      userLat: position.coords.latitude,
+      userLng: position.coords.longitude,
+      shopId: "shop-123"  // Generate a unique ID for this scan session
+    })
+  });
+
+  const data = await response.json();
+
+  if (data.name || data.price || data.barcode) {
+      playBeep();  
+  }
+}
+
   async function fetchProduct(barcode) {
 
         try {
             const res = await fetch(`/api/product/${barcode}`);
+            
             if (!res.ok) throw new Error("Not Found");
 
             const data = await res.json();

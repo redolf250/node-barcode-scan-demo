@@ -1,0 +1,226 @@
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+
+<div class="container py-3">
+
+  <div class="alert d-flex align-items-center gap-2 py-2 px-3" id="status-alert" role="alert" style="font-size:13px;">
+    <span class="badge rounded-circle p-1" id="gps-dot" style="background:#6c757d;width:10px;height:10px;display:inline-block;"></span>
+    <span id="gps-status">Tap "Get my location" to start</span>
+    <span class="badge bg-secondary ms-auto" id="acc-badge" style="display:none;"></span>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header fw-medium" style="font-size:13px;">📡 Current GPS Position</div>
+    <div class="card-body">
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <div class="bg-light rounded p-2 text-center">
+            <div class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Latitude</div>
+            <div class="fw-semibold font-monospace" style="font-size:14px;" id="cur-lat">—</div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="bg-light rounded p-2 text-center">
+            <div class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Longitude</div>
+            <div class="fw-semibold font-monospace" style="font-size:14px;" id="cur-lng">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="d-grid gap-2">
+        <button class="btn btn-primary btn-sm" onclick="getLocation()" id="loc-btn">📍 Get my location</button>
+        <button class="btn btn-outline-success btn-sm" onclick="addCorner()" id="add-btn" disabled>+ Add as corner</button>
+      </div>
+      <p class="text-muted mt-2 mb-0" style="font-size:12px;">Walk to each corner, get your location, then add it. You must tap <strong>"Get my location"</strong> each time before adding.</p>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center justify-content-between fw-medium" style="font-size:13px;">
+      <span>🏢 Building Corners</span>
+      <span class="badge bg-primary rounded-pill" id="corner-count">0</span>
+    </div>
+    <div class="card-body p-2">
+      <div id="corner-list">
+        <div class="text-center text-muted py-3" style="font-size:13px;">No corners recorded yet</div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div class="row g-2">
+        <div class="col-6">
+          <button class="btn btn-outline-primary btn-sm w-100" onclick="exportJSON()" id="export-btn" disabled>Export JSON</button>
+        </div>
+        <div class="col-6">
+          <button class="btn btn-outline-danger btn-sm w-100" onclick="clearAll()" id="clear-btn" disabled>Clear all</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="output-card" style="display:none;">
+    <div class="card-header fw-medium" style="font-size:13px;">📋 Copy into your database</div>
+    <div class="card-body p-2">
+      <pre class="bg-light rounded p-2 mb-2" id="output-box" style="font-size:11px;max-height:200px;overflow-y:auto;word-break:break-all;white-space:pre-wrap;"></pre>
+      <button class="btn btn-outline-secondary btn-sm w-100" onclick="copyOutput()">Copy to clipboard</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let corners = [];
+let currentPos = null; // cleared after every addCorner() call
+
+function getLocation() {
+  const dot = document.getElementById('gps-dot');
+  const status = document.getElementById('gps-status');
+  const alertEl = document.getElementById('status-alert');
+  const locBtn = document.getElementById('loc-btn');
+
+  alertEl.className = 'alert alert-secondary d-flex align-items-center gap-2 py-2 px-3';
+  dot.style.background = '#6c757d';
+  status.textContent = 'Getting location...';
+  locBtn.disabled = true;
+  locBtn.textContent = '⏳ Fetching...';
+  document.getElementById('add-btn').disabled = true;
+
+  if (!navigator.geolocation) {
+    status.textContent = 'GPS not supported on this device';
+    alertEl.className = 'alert alert-danger d-flex align-items-center gap-2 py-2 px-3';
+    dot.style.background = '#dc3545';
+    locBtn.disabled = false;
+    locBtn.textContent = '📍 Get my location';
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const acc = Math.round(pos.coords.accuracy);
+
+      const badge = document.getElementById('acc-badge');
+      badge.style.display = '';
+      badge.textContent = '±' + acc + 'm';
+
+      locBtn.disabled = false;
+      locBtn.textContent = '📍 Get my location';
+
+      if (acc > 30) {
+        currentPos = null; // reject weak reading — don't store it
+        document.getElementById('cur-lat').textContent = '~' + pos.coords.latitude.toFixed(5);
+        document.getElementById('cur-lng').textContent = '~' + pos.coords.longitude.toFixed(5);
+        alertEl.className = 'alert alert-warning d-flex align-items-center gap-2 py-2 px-3';
+        dot.style.background = '#ffc107';
+        badge.className = 'badge bg-warning text-dark ms-auto';
+        status.textContent = 'Weak signal (±' + acc + 'm) — wait and try again';
+        document.getElementById('add-btn').disabled = true;
+      } else {
+        currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude }; // only set on good reading
+        document.getElementById('cur-lat').textContent = currentPos.lat.toFixed(7);
+        document.getElementById('cur-lng').textContent = currentPos.lng.toFixed(7);
+        alertEl.className = 'alert alert-success d-flex align-items-center gap-2 py-2 px-3';
+        dot.style.background = '#198754';
+        badge.className = 'badge bg-success ms-auto';
+        status.textContent = 'Good signal — ready to record corner';
+        document.getElementById('add-btn').disabled = false;
+      }
+    },
+    (err) => {
+      currentPos = null;
+      locBtn.disabled = false;
+      locBtn.textContent = '📍 Get my location';
+      alertEl.className = 'alert alert-danger d-flex align-items-center gap-2 py-2 px-3';
+      dot.style.background = '#dc3545';
+      document.getElementById('gps-status').textContent = err.code === 1 ? 'Location permission denied' : 'Could not get location';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function addCorner() {
+  if (!currentPos) return; // guard: no valid reading available
+
+  corners.push({ ...currentPos }); // snapshot the position
+
+  // ✅ THE FIX: clear currentPos immediately so it can't be re-added
+  currentPos = null;
+
+  // Reset UI — user must tap "Get my location" again for the next corner
+  document.getElementById('add-btn').disabled = true;
+  document.getElementById('cur-lat').textContent = '—';
+  document.getElementById('cur-lng').textContent = '—';
+  document.getElementById('acc-badge').style.display = 'none';
+
+  const alertEl = document.getElementById('status-alert');
+  alertEl.className = 'alert alert-secondary d-flex align-items-center gap-2 py-2 px-3';
+  document.getElementById('gps-dot').style.background = '#6c757d';
+  document.getElementById('gps-status').textContent = 'Corner ' + corners.length + ' saved — move to next corner and get location again';
+
+  renderCorners();
+}
+
+function renderCorners() {
+  const list = document.getElementById('corner-list');
+  document.getElementById('corner-count').textContent = corners.length;
+  document.getElementById('export-btn').disabled = corners.length < 3;
+  document.getElementById('clear-btn').disabled = corners.length === 0;
+
+  if (corners.length === 0) {
+    list.innerHTML = '<div class="text-center text-muted py-3" style="font-size:13px;">No corners recorded yet</div>';
+    return;
+  }
+
+  list.innerHTML = corners.map((c, i) => `
+    <div class="d-flex align-items-center gap-2 p-2 border-bottom">
+      <span class="badge bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width:26px;height:26px;font-size:11px;flex-shrink:0;">${i + 1}</span>
+      <span class="font-monospace text-muted flex-grow-1" style="font-size:11px;">${c.lat.toFixed(7)}, ${c.lng.toFixed(7)}</span>
+      <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="removeCorner(${i})" style="font-size:12px;">✕</button>
+    </div>
+  `).join('');
+}
+
+function removeCorner(i) {
+  corners.splice(i, 1);
+  renderCorners();
+  if (corners.length === 0) document.getElementById('output-card').style.display = 'none';
+}
+
+function clearAll() {
+  corners = [];
+  currentPos = null;
+  document.getElementById('cur-lat').textContent = '—';
+  document.getElementById('cur-lng').textContent = '—';
+  document.getElementById('gps-dot').style.background = '#6c757d';
+  document.getElementById('gps-status').textContent = 'Tap "Get my location" to start';
+  document.getElementById('acc-badge').style.display = 'none';
+  document.getElementById('add-btn').disabled = true;
+  document.getElementById('output-card').style.display = 'none';
+  document.getElementById('status-alert').className = 'alert alert-secondary d-flex align-items-center gap-2 py-2 px-3';
+  renderCorners();
+}
+
+function exportJSON() {
+  const closed = [...corners, corners[0]];
+  const output = {
+    building_polygon: corners.map(c => ({ lat: c.lat, lng: c.lng })),
+    geojson_polygon: closed.map(c => [c.lng, c.lat]),
+    corner_count: corners.length,
+    recorded_at: new Date().toISOString()
+  };
+  document.getElementById('output-box').textContent = JSON.stringify(output, null, 2);
+  document.getElementById('output-card').style.display = '';
+  document.getElementById('output-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+function copyOutput() {
+  const text = document.getElementById('output-box').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    btn.classList.replace('btn-outline-secondary', 'btn-success');
+    setTimeout(() => {
+      btn.textContent = 'Copy to clipboard';
+      btn.classList.replace('btn-success', 'btn-outline-secondary');
+    }, 2000);
+  });
+}
+</script>
