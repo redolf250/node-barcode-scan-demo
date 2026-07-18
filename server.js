@@ -18,8 +18,13 @@ app.use(express.static(path.join(__dirname, "public")));
 
 
 app.get("/gps", (req, res) => {
-    res.sendFile(path.join(__dirname, "building_gps_corner_mapper.html"));
+    res.sendFile(path.join(__dirname, "index.html"));
 });
+
+app.get("/zxing", (req, res) => {
+    res.sendFile(path.join(__dirname, "zxing.html"));
+});
+
 
 // API: get product by barcode
 app.get("/api/product/:barcode", (req, res) => {
